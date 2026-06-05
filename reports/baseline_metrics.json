@@ -1,0 +1,21 @@
+{
+  "dataset": "data/sample/characters",
+  "dataset_type": "synthetic isolated characters for smoke testing",
+  "default_engine": "tesseract.js in browser",
+  "measured": false,
+  "metrics": {
+    "cer": null,
+    "character_accuracy": null,
+    "latency_ms_avg": null,
+    "macro_f1": null,
+    "model_size_bytes": null,
+    "precision": null,
+    "recall": null,
+    "weighted_f1": null,
+    "wer": null,
+    "word_accuracy": null
+  },
+  "reason": "System Tesseract is not installed and browser Tesseract.js depends on runtime CDN access; no real project dataset is included.",
+  "tesseract_available": false,
+  "tesseract_path": null
+}
