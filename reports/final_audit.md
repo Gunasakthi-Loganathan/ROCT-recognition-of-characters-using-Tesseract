@@ -59,3 +59,7 @@ The project is now organized as a browser Tesseract.js OCR application with a ha
 3. If the dataset is words/lines, implement CRNN with CTC and evaluate against Tesseract on an untouched test set.
 4. Add Playwright or equivalent browser E2E tests if network/CDN access is available or Tesseract.js is vendored.
 5. Vendor Tesseract.js or pin it with integrity controls for offline/reproducible deployment.
+
+## Real OCR model integration update
+
+The React application now exposes Auto, Tesseract, ML model, and Hybrid engines. A Python `/api/ocr` inference backend has been added for configured model checkpoints. Because the repository still has no real held-out handwriting dataset, no production CNN/CRNN checkpoint was trained or promoted. The included backend supports the dependency-free template model for PGM/PPM smoke tests and defines the response contract expected by the web UI. A real model should only replace Tesseract after `reports/model_comparison.json` is regenerated from an untouched test set and shows measurable improvement.

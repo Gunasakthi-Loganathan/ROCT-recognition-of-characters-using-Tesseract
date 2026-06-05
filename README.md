@@ -250,3 +250,61 @@ npm run preview
 - The included sample data is synthetic and too small for real accuracy conclusions.
 - No CNN/CRNN is selected because no real dataset is present to justify additional dependencies or architecture complexity.
 - Tesseract.js is loaded from CDN unless you vendor it for offline use.
+
+## Real OCR model integration workflow
+
+The current repository data contains only synthetic isolated-character smoke fixtures. It does **not** contain a real handwritten word/line dataset, so this branch does not train or promote a production CNN/CRNN checkpoint. To integrate a real model safely:
+
+1. Add a private or public real dataset under an ignored path such as `data/processed/handwriting/`.
+2. Determine the task type:
+   - isolated characters: train a CNN or transfer-learning classifier;
+   - words/lines: train a CRNN with CTC decoding;
+   - mixed pages: keep Tesseract or add segmentation before any classifier.
+3. Create `image_path,text` manifests for train/validation/test splits and keep the test set untouched.
+4. Validate and split data:
+
+```bash
+python3 -m ml_pipeline.validate --dataset data/processed/handwriting
+python3 -m ml_pipeline.cli validate \
+  --dataset-root data/processed/handwriting \
+  --train data/processed/handwriting/train.csv \
+  --val data/processed/handwriting/val.csv \
+  --test data/processed/handwriting/test.csv
+```
+
+5. Train the selected model outside normal app startup and save the best checkpoint under `checkpoints/`.
+6. Compare against Tesseract using an untouched test set and update `reports/model_comparison.json`.
+7. Set `ML_MODEL_PATH` to the selected checkpoint and start the Python inference backend.
+
+## Python ML inference backend
+
+Start the backend after configuring a model checkpoint:
+
+```bash
+ML_MODEL_PATH=checkpoints/real_ocr_model/model.json npm run ml:server
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:9000/
+```
+
+Prediction endpoint:
+
+```bash
+curl -F "file=@data/sample/characters/A/A_1.pgm" http://127.0.0.1:9000/api/ocr
+```
+
+The included lightweight backend accepts PGM/PPM images for the dependency-free template model. JPG/PNG handwritten production inference should be backed by a real trained CNN/CRNN service and the same `/api/ocr` response shape: `{ text, confidence, engine, model, latency_ms }`.
+
+## OCR engine selector in the web app
+
+The visible app now exposes four OCR engines:
+
+- **Auto** — tries the ML backend first and falls back to Tesseract when the ML endpoint is unavailable or low confidence.
+- **Tesseract** — browser Tesseract.js only.
+- **ML model** — Python `/api/ocr` backend only.
+- **Hybrid** — runs Tesseract and ML backend and selects the higher-confidence result.
+
+The result panel shows the selected model/engine, confidence, low-confidence warnings, and an engine-comparison card when multiple engines run.

@@ -17,7 +17,9 @@
     "security:audit": "npm audit --audit-level=high",
     "security": "npm run security:secrets && npm run security:audit",
     "lint": "node --check server/server.js && node --check scripts/check-no-secrets.js && python3 -m compileall ml_pipeline tests",
-    "smoke": "python3 -m ml_pipeline.validate --dataset data/sample/characters && python3 -m ml_pipeline.training --config configs/train.sample.json --dry-run"
+    "smoke": "python3 -m ml_pipeline.validate --dataset data/sample/characters && python3 -m ml_pipeline.preprocessing --input data/sample/characters/A/A_1.pgm --output /tmp/roct-preprocessed.pgm --width 8 --height 8",
+    "ml:server": "python3 -m ml_pipeline.inference_server",
+    "dev:all": "concurrently \"npm run client\" \"npm run server\" \"npm run ml:server\""
   },
   "dependencies": {
     "@google/genai": "^2.3.0",
