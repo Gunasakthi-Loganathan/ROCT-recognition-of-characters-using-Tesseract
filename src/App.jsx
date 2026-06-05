@@ -35,12 +35,18 @@ function loadTesseract() {
 const OCR_ENGINES = {
   tesseract: {
     label: "Tesseract.js",
-    description: "Browser-based OCR with Gemini AI auto-correction.",
+    description: "Browser-based OCR for printed and general text.",
     icon: "solar:scanner-bold",
     backend: false,
   },
-};
 
+  trocr: {
+    label: "TrOCR Handwritten",
+    description: "Transformer OCR for single-line handwritten English text.",
+    icon: "solar:scanner-bold",
+    backend: true,
+  },
+};
 // ---------- OCR Modes (used by Tesseract) ----------
 const OCR_MODES = {
   auto: {
