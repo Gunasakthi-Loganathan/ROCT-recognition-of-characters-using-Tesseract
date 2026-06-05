@@ -47,6 +47,7 @@ const OCR_ENGINES = {
     backend: true,
   },
 };
+
 // ---------- OCR Modes (used by Tesseract) ----------
 const OCR_MODES = {
   auto: {
@@ -422,7 +423,7 @@ function Hero({ dark }) {
           } backdrop-blur`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-          AI-Powered OCR · Tesseract.js · Gemini Correction
+          AI-Powered OCR · Tesseract.js · Microsoft TrOCR · Gemini
         </div>
 
         <h1
@@ -441,8 +442,8 @@ function Hero({ dark }) {
             dark ? "text-slate-400" : "text-slate-600"
           }`}
         >
-          Upload an image, run Tesseract.js OCR in the browser, and improve the
-          extracted text with Gemini AI correction.
+          Choose Tesseract.js for printed text or Microsoft TrOCR for handwritten
+          text, then improve the extracted result with Gemini AI correction.
         </p>
       </div>
     </section>
@@ -792,49 +793,61 @@ function OcrWorkspace({ dark }) {
     setStatusMessage("");
 
     try {
-      // ---------- Tesseract.js (browser) ----------
+      // ---------- Microsoft TrOCR (Python backend) ----------
       if (ocrEngine === "trocr") {
-  setStatusMessage("Running Microsoft TrOCR…");
-  setProgress(30);
+        setStatusMessage("Running Microsoft TrOCR…");
+        setProgress(25);
 
-  // Send the original or manually cropped image.
-  // Aggressive Tesseract binarization is not required for TrOCR.
-  const result = await recognizeWithTrocr(file);
+        // TrOCR works best with the original or manually cropped image.
+        if (processedPreviewUrl) {
+          URL.revokeObjectURL(processedPreviewUrl);
+          setProcessedPreviewUrl(null);
+        }
 
-  if (!result.text) {
-    throw new Error(
-      "TrOCR could not recognize text. Crop the image to one handwritten line."
-    );
-  }
+        const result = await recognizeWithTrocr(file);
+        const text = String(result.text || "").trim();
 
-  setOriginalText(result.text);
-  setAverageConfidence(null);
-  setLowConfidenceWords([]);
-  setBestPsmUsed(null);
-  setProgress(75);
+        if (!text) {
+          throw new Error(
+            "TrOCR could not recognize text. Crop the image to one handwritten line and try again."
+          );
+        }
 
-  try {
-    setStatusMessage("Correcting TrOCR output with Gemini AI…");
+        setOriginalText(text);
+        setAverageConfidence(null);
+        setLowConfidenceWords([]);
+        setBestPsmUsed(null);
+        setProgress(75);
 
-    const geminiResult = await geminiAutoCorrectText(result.text);
+        try {
+          setStatusMessage("Correcting TrOCR output with Gemini AI…");
 
-    setCorrectedText(geminiResult.correctedText);
-    setModelUsed(`TrOCR + ${geminiResult.model}`);
-    showToast("Handwriting recognized and corrected!");
-  } catch (geminiError) {
-    console.error(geminiError);
+          const geminiResult = await geminiAutoCorrectText(text);
+          const corrected = String(geminiResult.correctedText || text).trim();
 
-    // Preserve raw TrOCR output if Gemini is unavailable.
-    setCorrectedText(result.text);
-    setModelUsed(result.model);
-    setError(
-      "Gemini correction failed. Raw TrOCR output is displayed."
-    );
-  }
+          setCorrectedText(corrected);
+          setModelUsed(
+            `TrOCR + ${geminiResult.model || "Gemini"}`
+          );
+          showToast("Handwriting recognized and corrected!");
+        } catch (geminiError) {
+          console.error(geminiError);
 
-  setProgress(100);
-  return;
-}
+          // Preserve the raw TrOCR output if Gemini is unavailable.
+          setCorrectedText(text);
+          setModelUsed(
+            result.model || "microsoft/trocr-base-handwritten"
+          );
+          setError(
+            "Gemini correction failed. Raw TrOCR output is displayed."
+          );
+        }
+
+        setProgress(100);
+        return;
+      }
+
+      // ---------- Tesseract.js (browser) ----------
       setStatusMessage("Loading Tesseract.js…");
       const Tesseract = await loadTesseract();
 
@@ -844,58 +857,77 @@ function OcrWorkspace({ dark }) {
         setStatusMessage("Preprocessing image…");
         const processedBlob = await preprocessImage(file, ocrMode);
         imageForOcr = processedBlob;
-        if (processedPreviewUrl) URL.revokeObjectURL(processedPreviewUrl);
+
+        if (processedPreviewUrl) {
+          URL.revokeObjectURL(processedPreviewUrl);
+        }
         setProcessedPreviewUrl(URL.createObjectURL(processedBlob));
       } else {
-        if (processedPreviewUrl) URL.revokeObjectURL(processedPreviewUrl);
+        if (processedPreviewUrl) {
+          URL.revokeObjectURL(processedPreviewUrl);
+        }
         setProcessedPreviewUrl(null);
       }
 
       setStatusMessage("Running Tesseract OCR…");
 
       let best;
+
       if (ocrMode === "auto") {
         const psms = ["6", "11", "13"];
         const results = [];
+
         for (let i = 0; i < psms.length; i++) {
           const psm = psms[i];
           const passResult = await runOcrPass(
             Tesseract,
             imageForOcr,
             psm,
-            (p) => {
+            (currentProgress) => {
               const base = (i / psms.length) * 100;
-              const slice = p / psms.length;
+              const slice = currentProgress / psms.length;
               setProgress(Math.min(100, Math.round(base + slice)));
             }
           );
           results.push(passResult);
         }
-        const valid = results.filter((r) => r.text.length > 0);
-        const pool = valid.length > 0 ? valid : results;
-        best = pool.reduce((a, b) => (b.avg > a.avg ? b : a), pool[0]);
+
+        const validResults = results.filter((result) => result.text.length > 0);
+        const resultPool = validResults.length > 0 ? validResults : results;
+
+        best = resultPool.reduce(
+          (currentBest, result) =>
+            result.avg > currentBest.avg ? result : currentBest,
+          resultPool[0]
+        );
         setBestPsmUsed(best.psm);
       } else {
         const selectedMode = OCR_MODES[ocrMode];
+
         best = await runOcrPass(
           Tesseract,
           imageForOcr,
           selectedMode.psm,
-          (p) => setProgress(p)
+          (currentProgress) => setProgress(currentProgress)
         );
         setBestPsmUsed(best.psm);
       }
 
-      const text = best.text;
+      const text = String(best?.text || "").trim();
+
       if (!text) {
         setError("No readable text found. Try a clearer image or crop region.");
         return;
       }
 
-      const words = best.words;
+      const words = best.words || [];
+
       if (words.length > 0) {
-        const avg = best.avg;
-        setAverageConfidence(Number.isFinite(avg) ? Math.round(avg) : null);
+        const average = best.avg;
+        setAverageConfidence(
+          Number.isFinite(average) ? Math.round(average) : null
+        );
+
         const lowWords = words
           .filter((word) => Number(word.confidence || 0) < 75)
           .map((word) => ({
@@ -903,6 +935,7 @@ function OcrWorkspace({ dark }) {
             confidence: Math.round(Number(word.confidence || 0)),
           }))
           .slice(0, 15);
+
         setLowConfidenceWords(lowWords);
       }
 
@@ -917,15 +950,21 @@ function OcrWorkspace({ dark }) {
       try {
         const geminiResult = await geminiAutoCorrectText(ruleCorrected);
 
-        setCorrectedText(geminiResult.correctedText);
-        setModelUsed(`tesseract.js + ${geminiResult.model}`);
+        setCorrectedText(
+          String(geminiResult.correctedText || ruleCorrected).trim()
+        );
+        setModelUsed(
+          `tesseract.js + ${geminiResult.model || "Gemini"}`
+        );
         showToast("Text extracted and corrected with Gemini!");
       } catch (geminiError) {
         console.error(geminiError);
 
         setCorrectedText(ruleCorrected);
         setModelUsed("tesseract.js + rule correction");
-        setError("Gemini correction failed. Rule-based correction was applied instead.");
+        setError(
+          "Gemini correction failed. Rule-based correction was applied instead."
+        );
       }
     } catch (err) {
       console.error(err);
@@ -943,28 +982,48 @@ function OcrWorkspace({ dark }) {
       return;
     }
 
+    const isTrocrResult = ocrEngine === "trocr";
+    const baseModelName = isTrocrResult ? "TrOCR" : "tesseract.js";
+    const fallbackText = isTrocrResult
+      ? originalText.trim()
+      : autoCorrectText(originalText);
+
     try {
       setError("");
       setIsProcessing(true);
       setProgress(50);
-      setStatusMessage("Applying rule-based correction…");
-
-      const ruleCorrected = autoCorrectText(originalText);
+      setStatusMessage(
+        isTrocrResult
+          ? "Preparing TrOCR text…"
+          : "Applying rule-based correction…"
+      );
 
       setStatusMessage("Correcting text with Gemini AI…");
       setProgress(95);
 
-      const geminiResult = await geminiAutoCorrectText(ruleCorrected);
+      const geminiResult = await geminiAutoCorrectText(fallbackText);
 
-      setCorrectedText(geminiResult.correctedText);
-      setModelUsed(`tesseract.js + ${geminiResult.model}`);
+      setCorrectedText(
+        String(geminiResult.correctedText || fallbackText).trim()
+      );
+      setModelUsed(
+        `${baseModelName} + ${geminiResult.model || "Gemini"}`
+      );
       showToast("Gemini auto-correction applied!");
     } catch (err) {
       console.error(err);
 
-      setCorrectedText(autoCorrectText(originalText));
-      setModelUsed("tesseract.js + rule correction");
-      setError("Gemini correction failed. Rule-based correction was applied instead.");
+      setCorrectedText(fallbackText);
+      setModelUsed(
+        isTrocrResult
+          ? "TrOCR (raw output)"
+          : "tesseract.js + rule correction"
+      );
+      setError(
+        isTrocrResult
+          ? "Gemini correction failed. Raw TrOCR output is displayed."
+          : "Gemini correction failed. Rule-based correction was applied instead."
+      );
     } finally {
       setIsProcessing(false);
       setProgress(0);
@@ -1096,7 +1155,7 @@ function OcrWorkspace({ dark }) {
             >
               OCR Engine
             </label>
-            <div className="mt-1 grid sm:grid-cols-1 gap-2">
+            <div className="mt-1 grid sm:grid-cols-2 gap-2">
               {Object.entries(OCR_ENGINES).map(([key, eng]) => {
                 const active = ocrEngine === key;
                 return (
@@ -1124,6 +1183,19 @@ function OcrWorkspace({ dark }) {
               })}
             </div>
           </div>
+
+          {!isTesseract && (
+            <div
+              className={`mb-4 rounded-xl border px-3 py-2 text-xs leading-relaxed ${
+                dark
+                  ? "border-blue-500/20 bg-blue-500/10 text-blue-200"
+                  : "border-blue-200 bg-blue-50 text-blue-700"
+              }`}
+            >
+              TrOCR requires the Python API on port 8001 and works best when
+              the image is cropped to one handwritten text line.
+            </div>
+          )}
 
           {!previewUrl ? (
             <label
@@ -1607,13 +1679,13 @@ function HowItWorks({ dark }) {
     {
       icon: "solar:cpu-bolt-bold",
       title: "Run OCR",
-      desc: "Use Tesseract.js directly in the browser; no FastAPI backend is needed.",
+      desc: "Choose browser-based Tesseract.js or the Python TrOCR service for handwriting.",
       color: "from-indigo-500 to-purple-600",
     },
     {
       icon: "solar:document-text-bold",
       title: "Extract + Correct",
-      desc: "Recognized text is auto-corrected with rules and a custom dictionary.",
+      desc: "Review the OCR result, correct it with Gemini AI, then copy or download it.",
       color: "from-purple-500 to-pink-600",
     },
   ];
@@ -1655,8 +1727,8 @@ function HowItWorks({ dark }) {
               dark ? "text-slate-400" : "text-slate-600"
             }`}
           >
-            A simple frontend-only pipeline: browser OCR, preprocessing, confidence
-            scoring, and Gemini AI text correction.
+            A hybrid OCR pipeline with browser-based Tesseract.js, a Python TrOCR
+            service for handwriting, and Gemini AI text correction.
           </p>
         </div>
 
@@ -1712,8 +1784,8 @@ function Features({ dark }) {
   const items = [
     {
       icon: "solar:settings-bold",
-      title: "Browser OCR",
-      desc: "Tesseract.js reads text directly in the browser.",
+      title: "Dual OCR Engines",
+      desc: "Use Tesseract.js for general OCR and TrOCR for handwriting.",
     },
     {
       icon: "solar:gallery-edit-bold",
@@ -1798,7 +1870,7 @@ function Footer({ dark }) {
               dark ? "text-slate-300" : "text-slate-700"
             }`}
           >
-            OCR AI Tool · Tesseract.js · Gemini AI Correction
+            OCR AI Tool · Tesseract.js · Microsoft TrOCR · Gemini AI
           </span>
         </div>
 
