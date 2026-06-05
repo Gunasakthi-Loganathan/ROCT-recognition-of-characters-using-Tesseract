@@ -1,7 +1,7 @@
 const API_BASE_URL =
   import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 
-const GEMINI_CORRECT_ENDPOINT = `${https://roct-ocr-backend.onrender.com}/api/correct`;
+const GEMINI_CORRECT_ENDPOINT = `${API_BASE_URL}/api/correct`;
 const DEFAULT_TIMEOUT_MS = 15000;
 
 export async function geminiAutoCorrectText(text, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
