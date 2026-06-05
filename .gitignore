@@ -5,3 +5,15 @@ dist/
 .env.production
 .vercel/
 .DS_Store
+# ML datasets and generated model artifacts
+data/raw/
+data/processed/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Python caches
+__pycache__/
+*.py[cod]
