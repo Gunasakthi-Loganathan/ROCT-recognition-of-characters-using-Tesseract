@@ -1,0 +1,13 @@
+{
+  "dataset_root": "data/processed/handwriting",
+  "train_manifest": "data/processed/handwriting/train.csv",
+  "val_manifest": "data/processed/handwriting/val.csv",
+  "output_dir": "checkpoints/real_ocr_model",
+  "model_name": "cnn-isolated-character-or-crnn-line-ocr",
+  "batch_size": 16,
+  "epochs": 50,
+  "seed": 42,
+  "image_width": 128,
+  "image_height": 32,
+  "patience": 8
+}

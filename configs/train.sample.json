@@ -1,0 +1,12 @@
+{
+  "dataset_root": "data/sample/characters",
+  "train_manifest": "data/sample/characters_splits/train.csv",
+  "val_manifest": "data/sample/characters_splits/val.csv",
+  "output_dir": "reports/sample_template_model",
+  "batch_size": 2,
+  "epochs": 3,
+  "seed": 42,
+  "image_width": 8,
+  "image_height": 8,
+  "patience": 2
+}

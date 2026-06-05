@@ -1,0 +1,34 @@
+{
+  "models": [
+    {
+      "cer": 1.0,
+      "character_accuracy": 0.0,
+      "cpu_compatible": true,
+      "latency_ms_avg": "not measured",
+      "macro_f1": 0.0,
+      "model_name": "tesseract.js-browser-baseline",
+      "model_size_bytes": "external CDN/runtime",
+      "notes": "Default fallback; metrics unavailable without local Tesseract/browser benchmark dataset.",
+      "parameter_count": "n/a",
+      "selected_default": true,
+      "weighted_f1": 0.0,
+      "wer": 1.0,
+      "word_accuracy": 0.0
+    },
+    {
+      "cer": 0.75,
+      "character_accuracy": 0.25,
+      "cpu_compatible": true,
+      "latency_ms_avg": 0.050437750132914516,
+      "macro_f1": 0.16666666666666666,
+      "model_name": "template-isolated-character-smoke",
+      "model_size_bytes": 3048,
+      "notes": "Smoke-test baseline only; Tesseract remains default because no real held-out dataset proves improvement.",
+      "parameter_count": 4,
+      "selected_default": false,
+      "weighted_f1": 0.125,
+      "wer": 0.75,
+      "word_accuracy": 0.25
+    }
+  ]
+}

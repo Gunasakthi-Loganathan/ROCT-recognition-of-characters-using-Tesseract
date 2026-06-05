@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { geminiAutoCorrectText } from "./geminiCorrector";
+import { autoCorrectText } from "./ocrTextUtils";
+import { recognizeWithMlBackend } from "./mlOcrClient";
 
 // ---------- Tesseract.js Loader ----------
 const TESSERACT_CDN =
@@ -32,11 +34,29 @@ function loadTesseract() {
 
 // ---------- OCR Engine ----------
 const OCR_ENGINES = {
+  auto: {
+    label: "Auto",
+    description: "Tries the local ML endpoint first and falls back to Tesseract.js when needed.",
+    icon: "solar:magic-stick-3-bold",
+    backend: true,
+  },
   tesseract: {
     label: "Tesseract.js",
     description: "Browser-based OCR with Gemini AI auto-correction.",
     icon: "solar:scanner-bold",
     backend: false,
+  },
+  ml: {
+    label: "ML model",
+    description: "Python inference backend for a configured trained OCR model.",
+    icon: "solar:cpu-bolt-bold",
+    backend: true,
+  },
+  hybrid: {
+    label: "Hybrid",
+    description: "Runs Tesseract and the ML backend, then chooses the higher-confidence result.",
+    icon: "solar:branching-paths-down-bold",
+    backend: true,
   },
 };
 
@@ -81,31 +101,6 @@ const OCR_MODES = {
 
 const SOFT_MODES = new Set(["cursive", "handwritten", "auto"]);
 
-// ---------- Custom Dictionary ----------
-const CUSTOM_DICTIONARY = [
-  "a","an","and","are","as","at","be","by","for","from","has","he","in","is","it","its","of","on","that","the","to","was","were","will","with","this","these","those","you","your","we","our","they","their","i","am","can","could","should","would","may","might","must","do","does","did","done","have","had","not","no","yes","if","else","then","than","when","where","why","how","what","which","who","whom","because","therefore","hence","thus","example","important","definition","explain","describe","machine","learning","artificial","intelligence","algorithm","dataset","data","model","training","testing","validation","classification","regression","clustering","neural","network","deep","supervised","unsupervised","reinforcement","feature","label","accuracy","precision","recall","error","loss","function","gradient","descent","python","java","react","javascript","html","css","database","compiler","encryption","decryption","security","cloud","server","client","computer","science","engineering","digital","image","text","ocr","recognition","processing","system","input","output",
-];
-
-const COMMON_OCR_REPLACEMENTS = [
-  [/\bteh\b/gi, "the"],
-  [/\bths\b/gi, "this"],
-  [/\bthls\b/gi, "this"],
-  [/\bwlth\b/gi, "with"],
-  [/\bmachne\b/gi, "machine"],
-  [/\bleaming\b/gi, "learning"],
-  [/\bmodle\b/gi, "model"],
-  [/\balgorthm\b/gi, "algorithm"],
-  [/\balgoritm\b/gi, "algorithm"],
-  [/\bdatasett\b/gi, "dataset"],
-  [/\bdatabse\b/gi, "database"],
-  [/\brecieve\b/gi, "receive"],
-  [/\bseperate\b/gi, "separate"],
-  [/\bdefinaton\b/gi, "definition"],
-  [/\bclasification\b/gi, "classification"],
-  [/\bregresion\b/gi, "regression"],
-  [/\bneuraI\b/g, "neural"],
-  [/\bintelligance\b/gi, "intelligence"],
-];
 
 function useDarkMode() {
   const [dark, setDark] = useState(() => {
@@ -120,85 +115,6 @@ function useDarkMode() {
   }, [dark]);
 
   return [dark, setDark];
-}
-
-function levenshteinDistance(a, b) {
-  const matrix = Array.from({ length: a.length + 1 }, () =>
-    Array(b.length + 1).fill(0)
-  );
-  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
-  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost
-      );
-    }
-  }
-  return matrix[a.length][b.length];
-}
-
-function correctSingleWord(word) {
-  if (!word || word.length <= 2) return word;
-  const originalWord = word;
-  const lower = word.toLowerCase();
-  const cleaned = lower.replace(/[^a-z]/g, "");
-  if (!cleaned || cleaned.length <= 2) return originalWord;
-  if (CUSTOM_DICTIONARY.includes(cleaned)) return originalWord;
-  let bestMatch = cleaned;
-  let bestDistance = Infinity;
-  for (const dictWord of CUSTOM_DICTIONARY) {
-    if (Math.abs(dictWord.length - cleaned.length) > 2) continue;
-    const distance = levenshteinDistance(cleaned, dictWord);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestMatch = dictWord;
-    }
-  }
-  const maxAllowedDistance = cleaned.length <= 5 ? 1 : 2;
-  if (bestDistance <= maxAllowedDistance) {
-    if (originalWord[0] === originalWord[0].toUpperCase()) {
-      return bestMatch.charAt(0).toUpperCase() + bestMatch.slice(1);
-    }
-    return bestMatch;
-  }
-  return originalWord;
-}
-
-function autoCorrectText(text) {
-  if (!text.trim()) return "";
-  let corrected = text;
-  for (const [pattern, replacement] of COMMON_OCR_REPLACEMENTS) {
-    corrected = corrected.replace(pattern, replacement);
-  }
-  corrected = corrected
-    .replace(/0/g, "o")
-    .replace(/(?<=\b)[1|](?=[a-z])/gi, "l")
-    .replace(/vv/g, "w")
-    .replace(/rn/g, "m");
-  corrected = corrected
-    .split(/(\s+)/)
-    .map((token) => {
-      if (/^\s+$/.test(token)) return token;
-      const punctuationStart = token.match(/^[^a-zA-Z]+/)?.[0] || "";
-      const punctuationEnd = token.match(/[^a-zA-Z]+$/)?.[0] || "";
-      const word = token
-        .replace(/^[^a-zA-Z]+/, "")
-        .replace(/[^a-zA-Z]+$/, "");
-      if (!word) return token;
-      const fixed = correctSingleWord(word);
-      return punctuationStart + fixed + punctuationEnd;
-    })
-    .join("");
-  corrected = corrected
-    .replace(/\bi am\b/gi, "I am")
-    .replace(/\bi have\b/gi, "I have")
-    .replace(/\bi will\b/gi, "I will")
-    .replace(/\bi can\b/gi, "I can");
-  return corrected;
 }
 
 function preprocessImage(file, mode = "printed") {
@@ -665,7 +581,7 @@ function OcrWorkspace({ dark }) {
   const [originalText, setOriginalText] = useState("");
   const [correctedText, setCorrectedText] = useState("");
 
-  const [ocrEngine, setOcrEngine] = useState("tesseract");
+  const [ocrEngine, setOcrEngine] = useState("auto");
   const [ocrMode, setOcrMode] = useState("auto");
   const [usePreprocessing, setUsePreprocessing] = useState(true);
 
@@ -673,6 +589,7 @@ function OcrWorkspace({ dark }) {
   const [lowConfidenceWords, setLowConfidenceWords] = useState([]);
   const [bestPsmUsed, setBestPsmUsed] = useState(null);
   const [modelUsed, setModelUsed] = useState(null);
+  const [engineComparison, setEngineComparison] = useState([]);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -702,6 +619,7 @@ function OcrWorkspace({ dark }) {
     setLowConfidenceWords([]);
     setBestPsmUsed(null);
     setModelUsed(null);
+    setEngineComparison([]);
   };
 
   const handleFile = (selectedFile) => {
@@ -772,6 +690,117 @@ function OcrWorkspace({ dark }) {
     return { text, words, avg, psm };
   };
 
+  const applyTextCorrection = async (text, baseModelLabel) => {
+    setOriginalText(text);
+    setStatusMessage("Applying rule-based correction…");
+    const ruleCorrected = autoCorrectText(text);
+
+    setStatusMessage("Correcting text with Gemini AI…");
+    setProgress(95);
+
+    try {
+      const geminiResult = await geminiAutoCorrectText(ruleCorrected);
+      setCorrectedText(geminiResult.correctedText);
+      setModelUsed(`${baseModelLabel} + ${geminiResult.model}`);
+      showToast("Text extracted and corrected with Gemini!");
+    } catch (geminiError) {
+      console.error(geminiError);
+      setCorrectedText(ruleCorrected);
+      setModelUsed(`${baseModelLabel} + rule correction`);
+      setError("Gemini correction failed. Rule-based correction was applied instead.");
+    }
+  };
+
+  const runTesseractWorkflow = async (imageSource = file, progressStart = 0, progressEnd = 90) => {
+    setStatusMessage("Loading Tesseract.js…");
+    const Tesseract = await loadTesseract();
+
+    let imageForOcr = imageSource;
+
+    if (usePreprocessing) {
+      setStatusMessage("Preprocessing image…");
+      const processedBlob = await preprocessImage(imageSource, ocrMode);
+      imageForOcr = processedBlob;
+      if (processedPreviewUrl) URL.revokeObjectURL(processedPreviewUrl);
+      setProcessedPreviewUrl(URL.createObjectURL(processedBlob));
+    } else {
+      if (processedPreviewUrl) URL.revokeObjectURL(processedPreviewUrl);
+      setProcessedPreviewUrl(null);
+    }
+
+    setStatusMessage("Running Tesseract OCR…");
+
+    const mapProgress = (p) => {
+      const span = progressEnd - progressStart;
+      setProgress(Math.min(progressEnd, Math.round(progressStart + (p / 100) * span)));
+    };
+
+    let best;
+    if (ocrMode === "auto") {
+      const psms = ["6", "11", "13"];
+      const results = [];
+      for (let i = 0; i < psms.length; i++) {
+        const psm = psms[i];
+        const passResult = await runOcrPass(Tesseract, imageForOcr, psm, (p) => {
+          const local = ((i / psms.length) * 100) + (p / psms.length);
+          mapProgress(local);
+        });
+        results.push(passResult);
+      }
+      const valid = results.filter((r) => r.text.length > 0);
+      const pool = valid.length > 0 ? valid : results;
+      best = pool.reduce((a, b) => (b.avg > a.avg ? b : a), pool[0]);
+      setBestPsmUsed(best.psm);
+    } else {
+      const selectedMode = OCR_MODES[ocrMode] || OCR_MODES.printed;
+      best = await runOcrPass(Tesseract, imageForOcr, selectedMode.psm, mapProgress);
+      setBestPsmUsed(best.psm);
+    }
+
+    const words = best.words || [];
+    const confidence = Number.isFinite(best.avg) ? Math.round(best.avg) : 0;
+    return {
+      text: best.text,
+      confidence,
+      normalizedConfidence: confidence / 100,
+      words,
+      engine: "tesseract",
+      model: "tesseract.js",
+      psm: best.psm,
+    };
+  };
+
+  const runMlWorkflow = async (imageSource = file) => {
+    setStatusMessage("Running ML OCR backend…");
+    const result = await recognizeWithMlBackend(imageSource, { engine: ocrEngine });
+    const normalizedConfidence =
+      result.confidence === null
+        ? 0
+        : result.confidence > 1
+        ? result.confidence / 100
+        : result.confidence;
+    return {
+      text: result.text,
+      confidence: Math.round(normalizedConfidence * 100),
+      normalizedConfidence,
+      words: [],
+      engine: "ml",
+      model: result.model,
+      latencyMs: result.latencyMs,
+    };
+  };
+
+  const chooseHybridResult = (results) => {
+    const valid = results.filter((item) => item.status === "fulfilled" && item.value.text);
+    if (!valid.length) {
+      const firstError = results.find((item) => item.status === "rejected")?.reason;
+      throw firstError || new Error("No OCR engine returned readable text.");
+    }
+    return valid
+      .map((item) => item.value)
+      .sort((a, b) => b.normalizedConfidence - a.normalizedConfidence)[0];
+  };
+
   const handleConvert = async () => {
     if (!file) {
       setError("Please upload an image first.");
@@ -785,99 +814,63 @@ function OcrWorkspace({ dark }) {
     setStatusMessage("");
 
     try {
-      // ---------- Tesseract.js (browser) ----------
-      setStatusMessage("Loading Tesseract.js…");
-      const Tesseract = await loadTesseract();
+      let selectedResult;
+      const comparison = [];
 
-      let imageForOcr = file;
-
-      if (usePreprocessing) {
-        setStatusMessage("Preprocessing image…");
-        const processedBlob = await preprocessImage(file, ocrMode);
-        imageForOcr = processedBlob;
-        if (processedPreviewUrl) URL.revokeObjectURL(processedPreviewUrl);
-        setProcessedPreviewUrl(URL.createObjectURL(processedBlob));
-      } else {
-        if (processedPreviewUrl) URL.revokeObjectURL(processedPreviewUrl);
-        setProcessedPreviewUrl(null);
-      }
-
-      setStatusMessage("Running Tesseract OCR…");
-
-      let best;
-      if (ocrMode === "auto") {
-        const psms = ["6", "11", "13"];
-        const results = [];
-        for (let i = 0; i < psms.length; i++) {
-          const psm = psms[i];
-          const passResult = await runOcrPass(
-            Tesseract,
-            imageForOcr,
-            psm,
-            (p) => {
-              const base = (i / psms.length) * 100;
-              const slice = p / psms.length;
-              setProgress(Math.min(100, Math.round(base + slice)));
-            }
-          );
-          results.push(passResult);
+      if (ocrEngine === "ml") {
+        selectedResult = await runMlWorkflow(file);
+        comparison.push(selectedResult);
+      } else if (ocrEngine === "hybrid") {
+        setStatusMessage("Running hybrid OCR comparison…");
+        const [tesseractResult, mlResult] = await Promise.allSettled([
+          runTesseractWorkflow(file, 0, 45),
+          runMlWorkflow(file),
+        ]);
+        [tesseractResult, mlResult].forEach((item) => {
+          if (item.status === "fulfilled") comparison.push(item.value);
+        });
+        selectedResult = chooseHybridResult([tesseractResult, mlResult]);
+      } else if (ocrEngine === "auto") {
+        try {
+          selectedResult = await runMlWorkflow(file);
+          comparison.push(selectedResult);
+          if (!selectedResult.text || selectedResult.normalizedConfidence < 0.65) {
+            const tesseractFallback = await runTesseractWorkflow(file, 40, 90);
+            comparison.push(tesseractFallback);
+            selectedResult = chooseHybridResult([
+              { status: "fulfilled", value: selectedResult },
+              { status: "fulfilled", value: tesseractFallback },
+            ]);
+          }
+        } catch (mlError) {
+          console.warn(mlError);
+          const tesseractFallback = await runTesseractWorkflow(file, 0, 90);
+          comparison.push(tesseractFallback);
+          selectedResult = tesseractFallback;
         }
-        const valid = results.filter((r) => r.text.length > 0);
-        const pool = valid.length > 0 ? valid : results;
-        best = pool.reduce((a, b) => (b.avg > a.avg ? b : a), pool[0]);
-        setBestPsmUsed(best.psm);
       } else {
-        const selectedMode = OCR_MODES[ocrMode];
-        best = await runOcrPass(
-          Tesseract,
-          imageForOcr,
-          selectedMode.psm,
-          (p) => setProgress(p)
-        );
-        setBestPsmUsed(best.psm);
+        selectedResult = await runTesseractWorkflow(file, 0, 90);
+        comparison.push(selectedResult);
       }
 
-      const text = best.text;
-      if (!text) {
-        setError("No readable text found. Try a clearer image or crop region.");
+      if (!selectedResult.text) {
+        setError("No readable text found. Try a clearer image, crop region, or a different OCR engine.");
         return;
       }
 
-      const words = best.words;
-      if (words.length > 0) {
-        const avg = best.avg;
-        setAverageConfidence(Number.isFinite(avg) ? Math.round(avg) : null);
-        const lowWords = words
+      setEngineComparison(comparison);
+      setAverageConfidence(selectedResult.confidence);
+      setLowConfidenceWords(
+        (selectedResult.words || [])
           .filter((word) => Number(word.confidence || 0) < 75)
           .map((word) => ({
             text: word.text,
             confidence: Math.round(Number(word.confidence || 0)),
           }))
-          .slice(0, 15);
-        setLowConfidenceWords(lowWords);
-      }
-
-      setOriginalText(text);
-
-      setStatusMessage("Applying rule-based correction…");
-      const ruleCorrected = autoCorrectText(text);
-
-      setStatusMessage("Correcting text with Gemini AI…");
-      setProgress(95);
-
-      try {
-        const geminiResult = await geminiAutoCorrectText(ruleCorrected);
-
-        setCorrectedText(geminiResult.correctedText);
-        setModelUsed(`tesseract.js + ${geminiResult.model}`);
-        showToast("Text extracted and corrected with Gemini!");
-      } catch (geminiError) {
-        console.error(geminiError);
-
-        setCorrectedText(ruleCorrected);
-        setModelUsed("tesseract.js + rule correction");
-        setError("Gemini correction failed. Rule-based correction was applied instead.");
-      }
+          .slice(0, 15)
+      );
+      setProgress(92);
+      await applyTextCorrection(selectedResult.text, selectedResult.model || selectedResult.engine);
     } catch (err) {
       console.error(err);
       setError(err.message || "Something went wrong while processing.");
@@ -992,6 +985,7 @@ function OcrWorkspace({ dark }) {
     averageConfidence !== null && averageConfidence < 60;
 
   const isTesseract = ocrEngine === "tesseract";
+  const usesTesseractControls = ["auto", "tesseract", "hybrid"].includes(ocrEngine);
 
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 pb-16">
@@ -1133,7 +1127,7 @@ function OcrWorkspace({ dark }) {
                   className="w-full max-h-[340px] object-contain"
                 />
 
-                {showPreprocessedBadge && isTesseract && (
+                {showPreprocessedBadge && usesTesseractControls && (
                   <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-purple-600 text-white text-xs font-medium">
                     Preprocessed Preview
                   </div>
@@ -1182,7 +1176,7 @@ function OcrWorkspace({ dark }) {
               </div>
 
               {/* Tesseract-only mode controls */}
-              {isTesseract && (
+              {usesTesseractControls && (
                 <div className="grid sm:grid-cols-2 gap-3">
                   <div>
                     <label
@@ -1352,7 +1346,7 @@ function OcrWorkspace({ dark }) {
                 </span>
               )}
 
-              {bestPsmUsed && ocrMode === "auto" && isTesseract && (
+              {bestPsmUsed && ocrMode === "auto" && usesTesseractControls && (
                 <span
                   className={`text-xs px-2 py-1 rounded-full ${
                     dark
@@ -1400,6 +1394,72 @@ function OcrWorkspace({ dark }) {
                   Try cropping tighter around the text, improving image clarity, or
                   changing the OCR mode.
                 </div>
+              </div>
+            </div>
+          )}
+
+          {engineComparison.length > 0 && (
+            <div
+              className={`mb-4 rounded-xl border p-4 ${
+                dark
+                  ? "bg-slate-950/40 border-slate-800"
+                  : "bg-slate-50 border-slate-200"
+              }`}
+            >
+              <div
+                className={`text-sm font-medium mb-3 ${
+                  dark ? "text-slate-200" : "text-slate-700"
+                }`}
+              >
+                Engine comparison
+              </div>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {engineComparison.map((item) => (
+                  <div
+                    key={`${item.engine}-${item.model}`}
+                    className={`rounded-lg px-3 py-2 border ${
+                      item.model && modelUsed?.includes(item.model)
+                        ? "border-purple-500/60 bg-purple-500/10"
+                        : dark
+                        ? "border-slate-800 bg-slate-900/70"
+                        : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-xs font-semibold uppercase tracking-wide ${
+                          dark ? "text-slate-300" : "text-slate-600"
+                        }`}
+                      >
+                        {item.engine}
+                      </span>
+                      <span
+                        className={`text-xs ${
+                          item.confidence >= 80
+                            ? "text-green-500"
+                            : item.confidence >= 60
+                            ? "text-yellow-500"
+                            : "text-red-500"
+                        }`}
+                      >
+                        {item.confidence}% confidence
+                      </span>
+                    </div>
+                    <div
+                      className={`mt-1 text-xs truncate ${
+                        dark ? "text-slate-400" : "text-slate-500"
+                      }`}
+                      title={item.model}
+                    >
+                      {item.model}
+                    </div>
+                    {item.latencyMs !== undefined && item.latencyMs !== null && (
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        {item.latencyMs.toFixed(1)} ms backend latency
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
