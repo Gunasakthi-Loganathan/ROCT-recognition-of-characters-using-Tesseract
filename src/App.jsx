@@ -793,6 +793,48 @@ function OcrWorkspace({ dark }) {
 
     try {
       // ---------- Tesseract.js (browser) ----------
+      if (ocrEngine === "trocr") {
+  setStatusMessage("Running Microsoft TrOCR…");
+  setProgress(30);
+
+  // Send the original or manually cropped image.
+  // Aggressive Tesseract binarization is not required for TrOCR.
+  const result = await recognizeWithTrocr(file);
+
+  if (!result.text) {
+    throw new Error(
+      "TrOCR could not recognize text. Crop the image to one handwritten line."
+    );
+  }
+
+  setOriginalText(result.text);
+  setAverageConfidence(null);
+  setLowConfidenceWords([]);
+  setBestPsmUsed(null);
+  setProgress(75);
+
+  try {
+    setStatusMessage("Correcting TrOCR output with Gemini AI…");
+
+    const geminiResult = await geminiAutoCorrectText(result.text);
+
+    setCorrectedText(geminiResult.correctedText);
+    setModelUsed(`TrOCR + ${geminiResult.model}`);
+    showToast("Handwriting recognized and corrected!");
+  } catch (geminiError) {
+    console.error(geminiError);
+
+    // Preserve raw TrOCR output if Gemini is unavailable.
+    setCorrectedText(result.text);
+    setModelUsed(result.model);
+    setError(
+      "Gemini correction failed. Raw TrOCR output is displayed."
+    );
+  }
+
+  setProgress(100);
+  return;
+}
       setStatusMessage("Loading Tesseract.js…");
       const Tesseract = await loadTesseract();
 
