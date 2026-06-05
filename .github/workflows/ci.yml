@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Lint and syntax checks
+        run: npm run lint
+
+      - name: JavaScript tests
+        run: npm test
+
+      - name: Python tests
+        run: npm run test:python
+
+      - name: Dataset validation smoke test
+        run: python3 -m ml_pipeline.validate --dataset data/sample/characters
+
+      - name: Deterministic split and ML dry run
+        run: |
+          rm -rf data/sample/characters_splits reports/sample_template_model
+          python3 -m ml_pipeline.validate --dataset data/sample/characters --create-splits --output-dir data/sample/characters_splits
+          python3 -m ml_pipeline.training --config configs/train.sample.json --dry-run
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Secret scan
+        run: npm run security:secrets

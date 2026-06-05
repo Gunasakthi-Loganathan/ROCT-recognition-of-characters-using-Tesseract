@@ -16,6 +16,7 @@ test("geminiAutoCorrectText does not call backend for blank text", async () => {
   assert.deepEqual(await geminiAutoCorrectText("   "), {
     correctedText: "",
     model: "gemini-2.5-flash",
+    engine: "local-empty-input",
   });
   assert.equal(called, false);
 });
@@ -28,6 +29,7 @@ test("geminiAutoCorrectText returns backend result", async () => {
   assert.deepEqual(await geminiAutoCorrectText(" hello "), {
     correctedText: "Hello world",
     model: "gemini-test",
+    engine: "gemini",
   });
 });
 

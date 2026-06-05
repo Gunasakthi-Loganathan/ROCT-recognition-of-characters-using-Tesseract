@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 
 const ROOT = process.cwd();
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "coverage", ".venv", "venv", "__pycache__"]);
-const SKIP_FILES = new Set(["package-lock.json"]);
+const SKIP_FILES = new Set(["package-lock.json", ".env.example"]);
 const SECRET_FILE_PATTERNS = [/^\.env(?:\.|$)/i, /id_rsa/i, /id_dsa/i, /\.pem$/i, /\.p12$/i, /\.pfx$/i];
 const SECRET_PATTERNS = [
   { name: "private key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },

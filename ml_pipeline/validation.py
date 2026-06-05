@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".pgm", ".ppm"}
 IMAGE_MAGIC = {
     b"\xff\xd8\xff": "jpeg",
     b"\x89PNG\r\n\x1a\n": "png",
@@ -18,6 +18,10 @@ IMAGE_MAGIC = {
     b"II*\x00": "tiff",
     b"MM\x00*": "tiff",
     b"RIFF": "webp",
+    b"P2": "pgm",
+    b"P3": "ppm",
+    b"P5": "pgm",
+    b"P6": "ppm",
 }
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 TEXT_NORMALIZER = re.compile(r"\s+")
@@ -186,7 +190,7 @@ def _find_leakage(records: list[DatasetRecord], report: ValidationReport, config
                 by_hash[record.sha256] = record
 
         normalized = normalize_text(record.text)
-        if normalized:
+        if normalized and len(normalized) > 2:
             previous = by_text.get(normalized)
             if previous and previous.split != record.split:
                 item = {
@@ -258,3 +262,32 @@ def validate_splits(
         report.warnings.append("only one split was provided; leakage checks require at least two splits")
 
     return report
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for manifest validation or dataset-directory auditing."""
+
+    import argparse
+    from .dataset import audit_dataset
+
+    parser = argparse.ArgumentParser(description="Validate OCR manifests or audit a dataset directory")
+    parser.add_argument("--dataset", type=Path, help="dataset directory to audit")
+    parser.add_argument("--dataset-root", type=Path, help="root for manifest image paths")
+    parser.add_argument("--train", type=Path)
+    parser.add_argument("--val", type=Path)
+    parser.add_argument("--test", type=Path)
+    args = parser.parse_args(argv)
+    if args.dataset:
+        audit = audit_dataset(args.dataset)
+        print(audit.to_json())
+        return 0 if not audit.to_dict()["errors"] else 1
+    if not args.dataset_root:
+        parser.error("--dataset or --dataset-root is required")
+    manifests = {key: value for key, value in {"train": args.train, "val": args.val, "test": args.test}.items() if value}
+    report = validate_splits(manifests, args.dataset_root)
+    print(report.to_json())
+    return 0 if report.ok else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,218 +1,252 @@
-# Image to Text OCR AI
+# ROCT — Recognition of Characters using Tesseract
 
-Image to Text OCR AI is a React + Vite OCR application that runs Tesseract.js in the browser and optionally sends the OCR output to a local Express backend for Gemini-powered text correction. The repository also includes a lightweight, dependency-minimal machine-learning pipeline package for validating OCR datasets, detecting data leakage, planning training runs, and evaluating prediction files.
+ROCT is a React + Vite OCR demonstration app. It keeps browser-based Tesseract.js as the default OCR engine, optionally improves recognized text with a local Express/Gemini correction backend, and includes a reproducible Python MLOps toolkit for dataset validation, preprocessing, deterministic splits, baseline training dry runs, prediction, and evaluation.
 
-> Security note: do not commit `.env` files, API keys, access tokens, passwords, downloaded datasets, or model checkpoints. The included secret scan is intended as a last line of defense, not a replacement for careful review.
-
-## Current architecture
-
-```text
-.
-├── ml_pipeline/              # Tested Python ML validation/evaluation helpers
-│   ├── cli.py                # `validate`, `evaluate`, and `train` CLI entry points
-│   ├── metrics.py            # Pure-Python CER/WER and prediction CSV evaluation
-│   ├── training.py           # Training dry-run planner with dataset gates
-│   └── validation.py         # Manifest validation and leakage checks
-├── scripts/
-│   └── check-no-secrets.js   # Local credential-pattern scanner
-├── server/
-│   └── server.js             # Express Gemini correction API
-├── src/
-│   ├── App.jsx               # OCR UI and Tesseract workflow
-│   ├── geminiCorrector.js    # Frontend client for `/api/correct`
-│   ├── ocrTextUtils.js       # Rule-based OCR cleanup utilities
-│   ├── components/
-│   │   └── MlPipeline.jsx    # Visual ML pipeline documentation in the app
-│   └── __tests__/            # Node test-runner unit tests
-├── tests/                    # Python unittest coverage for ML helpers
-├── package.json
-└── vite.config.js
-```
+The repository does **not** include a real handwritten OCR benchmark dataset or a production-trained CNN/CRNN checkpoint. A tiny synthetic isolated-character fixture is included only for smoke tests. Accuracy claims in this repository are therefore limited to the generated reports under `reports/`.
 
 ## Features
 
-- Browser OCR through Tesseract.js with image preprocessing and selectable page-segmentation modes.
-- Optional Gemini text correction through a local Express backend.
-- Dataset manifest validation before model training.
-- Data leakage safeguards for duplicate image hashes, repeated normalized labels, and overlapping `writer_id` / `document_id` groups.
-- Pure-Python CER/WER metrics for model evaluation without requiring GPU dependencies.
-- Unit tests for OCR text cleanup, Gemini client behavior, metrics, and dataset validation.
-- Dependency and security scripts for `npm ls`, `npm audit`, and committed-secret scanning.
+- Browser OCR with Tesseract.js, image upload, drag-and-drop, preview, crop, preprocessing, confidence display, low-confidence word reporting, copy/download, and reset.
+- Optional Express backend for Gemini OCR text correction with retries, timeout, explicit missing-key handling, and safe error responses.
+- Python dataset audit for class distribution, duplicates, missing labels, invalid/corrupted files, dimensions, and split leakage.
+- Deterministic train/validation/test manifest generation with a fixed random seed and duplicate grouping.
+- Shared dependency-free preprocessing for sample PGM/PPM data: inversion detection, contrast stretch, median denoise, Otsu threshold, and deterministic resize.
+- CPU-only template classifier for isolated-character dry runs and smoke tests. Tesseract remains the default engine unless a real held-out dataset proves a better model.
+- Evaluation utilities for CER, WER, accuracy, macro/weighted F1, confusion matrix, and confused-character pairs.
+- Unit, integration, smoke, dependency, and secret-scan scripts plus GitHub Actions CI.
+
+## Architecture
+
+```text
+.
+├── .github/workflows/ci.yml        # CI validation workflow
+├── configs/train.sample.json       # Verified sample dry-run training config
+├── data/sample/characters/         # Tiny synthetic isolated-character smoke dataset
+├── ml_pipeline/                    # Python OCR MLOps toolkit
+│   ├── dataset.py                  # Dataset audit and deterministic splits
+│   ├── evaluation.py               # Metrics reports and model comparison helpers
+│   ├── metrics.py                  # CER/WER edit-distance metrics
+│   ├── models.py                   # CPU template classifier interface
+│   ├── predict.py                  # Local prediction CLI
+│   ├── preprocessing.py            # Shared preprocessing for dry runs/inference
+│   ├── training.py                 # Template training and dry-run CLI
+│   ├── validate.py                 # `python -m ml_pipeline.validate` alias
+│   └── validation.py               # Manifest validation and leakage checks
+├── reports/                        # Audit, baseline, and comparison reports
+├── scripts/                        # Secret scan and report generation scripts
+├── server/server.js                # Express Gemini correction backend
+├── src/                            # React OCR application
+└── tests/                          # Python tests
+```
 
 ## Prerequisites
 
-- Node.js 18+.
-- npm 9+.
-- Python 3.10+ for the ML pipeline utilities and Python tests.
-- A Gemini API key only if you want backend auto-correction.
+- Node.js 24.x was used for verification in this environment.
+- npm 11.x was used for verification in this environment.
+- Python 3.14 was used for verification in this environment; CI uses Python 3.12.
+- Optional: a Gemini API key for backend text correction.
+- Optional: local system Tesseract for external benchmarking. The web app uses browser Tesseract.js from CDN at runtime.
 
-## Setup
+## Environment variables
 
-Install JavaScript dependencies:
+Create a local `.env` from the placeholder file if you want Gemini correction:
 
 ```bash
-npm install
+cp .env.example .env
 ```
 
-Optional backend configuration: create a local, untracked `.env` file only if you need Gemini correction, and add `GEMINI_API_KEY=<your key>` locally. Never commit real `.env` files.
+Then edit `.env` locally. Never commit real secrets.
 
-The repository intentionally does not require Python packages for validation and metric tests. If you later add full TrOCR fine-tuning, install GPU-specific dependencies in a separate virtual environment and keep that environment outside version control.
+Supported variables:
 
-## Run the app
+- `PORT` — backend port; default `8000`.
+- `CLIENT_ORIGIN` — additional allowed frontend origin; default local Vite origins are already allowed.
+- `GEMINI_API_KEY` — required only for Gemini correction.
+- `MAX_CORRECTION_TEXT_LENGTH` — backend text limit; default `8000`.
+- `GEMINI_TIMEOUT_MS` — provider request timeout; default `15000`.
 
-Start the Vite frontend and Express backend together:
+## Install
+
+```bash
+npm ci
+```
+
+No Python packages are required for the included ML validation, preprocessing, training dry run, or tests.
+
+## Run the application
+
+Start frontend and backend together:
 
 ```bash
 npm run dev
 ```
 
-Or start them separately:
+Or start separately:
 
 ```bash
-npm run client
 npm run server
+npm run client
 ```
 
 Open the Vite URL, usually `http://localhost:5173`.
 
 ## Backend API
 
-The Express backend exposes:
+- `GET /` returns health and whether Gemini is configured.
+- `POST /api/correct` accepts `{ "text": "..." }` and returns `{ correctedText, model, engine }` when `GEMINI_API_KEY` is configured.
+- Missing Gemini configuration returns an explicit `503` for correction requests; browser-only OCR still works.
 
-- `GET /` — health check.
-- `POST /api/correct` — accepts JSON `{ "text": "..." }` and returns corrected text.
+## Dataset format
 
-Environment variables:
+For real datasets, use either class folders for isolated characters:
 
-- `GEMINI_API_KEY` — required for Gemini correction.
-- `PORT` — optional backend port; defaults to `8000`.
-- `CLIENT_ORIGIN` — optional additional allowed CORS origin.
+```text
+dataset/
+├── A/img-001.pgm
+├── A/img-002.pgm
+├── B/img-001.pgm
+└── B/img-002.pgm
+```
 
-## Dataset manifest format
-
-Training, validation, and test manifests are CSV files. Required columns:
+or CSV manifests with required columns:
 
 ```csv
 image_path,text
 samples/page-001-line-001.png,The quick brown fox
 ```
 
-Recommended optional columns for stronger leakage checks:
+Optional manifest columns `writer_id` and `document_id` strengthen leakage detection for handwriting datasets.
 
-```csv
-image_path,text,writer_id,document_id
-samples/page-001-line-001.png,The quick brown fox,writer-001,page-001
+## Dataset validation
+
+Audit a dataset directory:
+
+```bash
+python3 -m ml_pipeline.validate --dataset data/sample/characters
 ```
 
-Rules enforced by `ml_pipeline.validation`:
+Create deterministic splits:
 
-- `image_path` and `text` must be present and non-empty.
-- Image paths must stay inside `--dataset-root` unless absolute paths are explicitly enabled in code.
-- File extensions and file headers must look like supported images.
-- Labels cannot contain control characters and must stay below the configured maximum length.
-- Identical image hashes across splits fail validation.
-- Identical normalized text across splits is reported as possible leakage.
-- Reused `writer_id` or `document_id` across splits fails validation by default.
+```bash
+python3 -m ml_pipeline.validate \
+  --dataset data/sample/characters \
+  --create-splits \
+  --output-dir data/sample/characters_splits
+```
 
-## Validate a dataset
+Validate existing manifests:
 
 ```bash
 python3 -m ml_pipeline.cli validate \
-  --dataset-root data/processed \
-  --train data/train.csv \
-  --val data/val.csv \
-  --test data/test.csv
+  --dataset-root data/sample/characters \
+  --train data/sample/characters_splits/train.csv \
+  --val data/sample/characters_splits/val.csv \
+  --test data/sample/characters_splits/test.csv
 ```
 
-The command prints a JSON report and exits with status `1` if validation fails.
+## Preprocessing
 
-## Plan training
+Run the shared preprocessing pipeline and save debug stages:
 
-Use a dry run before launching any expensive model job:
+```bash
+python3 -m ml_pipeline.preprocessing \
+  --input data/sample/characters/A/A_1.pgm \
+  --output reports/A_1_preprocessed.pgm \
+  --width 8 \
+  --height 8 \
+  --debug-dir reports/preprocess_debug
+```
+
+The original input is never overwritten.
+
+## Training dry run and local baseline model
+
+Run the verified dry run:
+
+```bash
+python3 -m ml_pipeline.training --config configs/train.sample.json --dry-run
+```
+
+Run the lightweight template baseline for the sample fixture:
 
 ```bash
 python3 -m ml_pipeline.training \
-  --dataset-root data/processed \
-  --train-manifest data/train.csv \
-  --val-manifest data/val.csv \
-  --output-dir checkpoints/best_model \
-  --batch-size 8 \
-  --epochs 10 \
-  --dry-run
+  --config configs/train.sample.json \
+  --output-dir reports/sample_template_model_full
 ```
 
-The dry run validates the data, checks hyperparameters, calculates step counts, and writes `training_plan.json` under the output directory. The repository currently provides the tested validation/planning gate, but does not download or fine-tune large TrOCR models during CI. Add GPU-specific training code behind this validation gate if you deploy model training infrastructure.
+This is a CPU-only isolated-character baseline, not a production handwritten line OCR model.
 
-## Evaluate predictions
-
-Create a prediction CSV with `prediction` and `reference` columns:
-
-```csv
-prediction,reference
-hello world,hello world
-helo world,hello world
-```
-
-Run:
+## Prediction
 
 ```bash
-python3 -m ml_pipeline.cli evaluate --predictions predictions.csv
+python3 -m ml_pipeline.predict \
+  --model reports/sample_template_model_full/template_model.json \
+  --image data/sample/characters/A/A_1.pgm
 ```
 
-The output includes row count, character error rate (CER), and word error rate (WER).
+The output includes recognized text, confidence, engine, and latency.
 
-## Testing, dependency checks, and security checks
+## Evaluation and model comparison
 
-Run frontend/unit tests:
+Evaluate a prediction CSV with `prediction,reference` columns:
 
 ```bash
-npm test
+python3 -m ml_pipeline.evaluation --predictions predictions.csv --output-json reports/evaluation.json
 ```
 
-Run Python ML tests:
+Regenerate baseline and comparison reports after running sample training:
 
 ```bash
-npm run test:python
+python3 scripts/generate_reports.py
 ```
 
-Run all unit tests:
+Current reports:
+
+- `reports/baseline_metrics.json`
+- `reports/baseline_report.md`
+- `reports/model_comparison.json`
+- `reports/model_comparison.md`
+- `reports/final_audit.md`
+
+## Testing and verification
 
 ```bash
+npm run lint
 npm run test:all
-```
-
-Check installed JavaScript dependency tree:
-
-```bash
+npm run smoke
+npm run build
 npm run check:deps
-```
-
-Scan committed files for credential-like content:
-
-```bash
 npm run security:secrets
 ```
 
-Run npm's vulnerability audit:
+`npm run security:audit` is configured but returned HTTP 403 from the registry audit endpoint in this environment. Run it in an environment with audit endpoint access.
 
-```bash
-npm run security:audit
-```
-
-Run both security checks:
-
-```bash
-npm run security
-```
-
-Build production assets:
+## Production build
 
 ```bash
 npm run build
+npm run preview
 ```
 
-## Remaining known issues
+## Security guidance
 
-- Tesseract.js is loaded from a CDN at runtime; offline usage requires vendoring or bundling that dependency.
-- Full TrOCR fine-tuning is not implemented in this repository because it requires large model downloads and GPU-specific dependencies. The included pipeline focuses on the validation, leakage prevention, planning, and evaluation steps that should gate that training job.
-- Gemini correction requires a local `GEMINI_API_KEY`; missing or invalid keys will make `/api/correct` fail while browser-only OCR remains usable.
+- Never commit `.env`, real API keys, tokens, passwords, private URLs, private datasets, or private checkpoints.
+- Upload limits are enforced in both frontend file handling and backend text correction payloads.
+- Backend errors are sanitized and do not intentionally print secrets.
+- CORS is restricted to local Vite origins plus optional `CLIENT_ORIGIN`.
+- Run `npm run security:secrets` before every commit.
+
+## Troubleshooting
+
+- **Gemini correction returns 503**: set `GEMINI_API_KEY` in a local `.env`; browser OCR still works without it.
+- **Tesseract.js fails to load**: check network/CDN access, or vendor Tesseract.js for offline deployments.
+- **Dataset validation finds leakage**: remove duplicate image hashes from validation/test splits or split by writer/document groups.
+- **No real accuracy improvement is reported**: add a real held-out OCR dataset first, then compare Tesseract against a suitable isolated-character CNN or CRNN/CTC sequence model.
+
+## Known limitations
+
+- The default app OCR engine is still browser Tesseract.js.
+- The included sample data is synthetic and too small for real accuracy conclusions.
+- No CNN/CRNN is selected because no real dataset is present to justify additional dependencies or architecture complexity.
+- Tesseract.js is loaded from CDN unless you vendor it for offline use.

@@ -1,0 +1,6 @@
+"""Compatibility CLI for `python -m ml_pipeline.validate --dataset ...`."""
+
+from .dataset import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
