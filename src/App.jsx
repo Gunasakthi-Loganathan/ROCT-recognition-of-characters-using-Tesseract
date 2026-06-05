@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { geminiAutoCorrectText } from "./geminiCorrector";
+import { recognizeWithTrocr } from "./trocrClient";
 
 // ---------- Tesseract.js Loader ----------
 const TESSERACT_CDN =
